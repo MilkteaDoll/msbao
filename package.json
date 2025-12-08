@@ -1,0 +1,30 @@
+{
+  "name": "koishi-plugin-msbao",
+  "description": "Pudding's plugin",
+  "version": "0.0.9",
+  "contributors": [
+    "MilkteaDoll <https://github.com/MilkteaDoll>"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MilkteaDoll/msbao.git"
+  },
+  "main": "lib/index.js",
+  "typings": "lib/index.d.ts",
+  "files": [
+    "lib",
+    "dist",
+    "*.png"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "chatbot",
+    "plugin"
+  ],
+  "peerDependencies": {
+    "koishi": "^4.18.7"
+  },
+  "dependencies": {
+    "maplestory-openapi": "^3.4.1"
+  }
+}
