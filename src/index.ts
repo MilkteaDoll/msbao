@@ -18,6 +18,7 @@ export interface Config {
     selfWhitelist: string[];       // 独立白名单
     queryInterval?: number;
     images?: string[];
+    dataPath?: string;             // 新增：自定义数据存储路径
   };
 
   URL: {
@@ -77,9 +78,9 @@ export const Config: Schema<Config> = Schema.object({
     useGlobalwlist: Schema.boolean().default(true).description('是否套用全局白名单'),
     selfWhitelist: Schema.array(Schema.string()).role('table').default([]).description('独立白名单'),
     queryInterval: Schema.number().default(100).description('查询间隔（毫秒）'),
-    images: Schema.array(Schema.string()).role('table').default(['image.png']).description('随消息一起发出的图片文件名（放在插件根目录，可带子目录）') 
+    images: Schema.array(Schema.string()).role('table').default(['image.png']).description('随消息一起发出的图片文件名（放在插件根目录，可带子目录）'),
+    dataPath: Schema.string().description('自定义数据存储路径（留空则使用默认路径）').default('') // 添加自定义路径选项
   }),
-
   
 });
 
@@ -95,8 +96,10 @@ export function apply(ctx: Context, config: Config) {
   // 添加绑定信息持久化存储
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = dirname(__filename);
-  const dataDir = resolve(__dirname, '../../../data'); // 在插件目录外创建数据目录
-  const dataFile = resolve(dataDir, 'bindings.json');
+  
+  // 使用配置中的自定义路径，如果没有配置则使用默认路径
+  const dataFile = config.ms.dataPath ? resolve(config.ms.dataPath) : resolve(__dirname, '../../../data/bindings.json');
+  const dataDir = dirname(dataFile); // 获取文件所在目录
 
   // 确保数据目录存在
   if (!existsSync(dataDir)) {
