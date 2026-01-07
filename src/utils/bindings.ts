@@ -11,17 +11,17 @@ export class BindingsManager {
 
         // 确保目录存在
         if (!existsSync(dataDir)) {
-        mkdirSync(dataDir, { recursive: true });
+            mkdirSync(dataDir, { recursive: true });
         }
 
         // 初始化绑定数据
         if (existsSync(this.filePath)) {
-        try {
-            this.bindings = JSON.parse(readFileSync(this.filePath, 'utf-8'));
-        } catch (e) {
-            console.error('读取绑定数据失败，使用空数据:', e);
-            this.bindings = {};
-        }
+            try {
+                this.bindings = JSON.parse(readFileSync(this.filePath, 'utf-8'));
+            } catch (e) {
+                console.error('读取绑定数据失败，使用空数据:', e);
+                this.bindings = {};
+            }
         }
     }
 
@@ -40,8 +40,8 @@ export class BindingsManager {
 
     unbindQQ(qqId: string): void {
         if (this.bindings.hasOwnProperty(qqId)) {
-        delete this.bindings[qqId];
-        this.save();
+            delete this.bindings[qqId];
+            this.save();
         }
     }
 }
