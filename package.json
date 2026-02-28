@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-msbao",
   "description": "Pudding's plugin",
-  "version": "0.0.16",
+  "version": "0.0.17",
   "contributors": [
     "MilkteaDoll <https://github.com/MilkteaDoll>"
   ],
@@ -26,6 +26,7 @@
     "koishi": "^4.18.7"
   },
   "dependencies": {
-    "maplestory-openapi": "^3.4.1"
+    "maplestory-openapi": "^3.4.1",
+    "puppeteer-core": "^24.37.5"
   }
 }

@@ -89,6 +89,109 @@ export const Config: Schema<Config> = Schema.object({
 
 export const name = 'msbao';
 
+//格式化日期
+function formatDateToYMD(dateInput: string | Date | null | undefined): string {
+  if (!dateInput) return '未知';
+  
+  let date: Date;
+  if (typeof dateInput === 'string') {
+    // 如果已经是 yyyy-MM-dd，直接返回（避免时区问题）
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateInput)) {
+      return dateInput;
+    }
+    // 否则尝试解析为 Date
+    date = new Date(dateInput);
+  } else {
+    date = dateInput;
+  }
+
+  // 检查是否有效日期
+  if (isNaN(date.getTime())) {
+    return '无效日期';
+  }
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0'); // getMonth() 是 0-11
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+}
+
+//格式化战力单位
+function formatNumber(numStr: string): string {
+  let num = parseInt(numStr, 10);
+  if (isNaN(num) || num < 0) return numStr;
+
+  let parts: string[] = [];
+
+  if (num >= 100_000_000) {
+    const yi = Math.floor(num / 100_000_000);
+    parts.push(`${yi}亿`);
+    num %= 100_000_000;
+  }
+
+  if (num >= 10_000) {
+    const wan = Math.floor(num / 10_000);
+    parts.push(`${wan}万`);
+    num %= 10_000;
+  }
+
+  if (num > 0) {
+    parts.push(num.toString());
+  }
+
+  return parts.length ? parts.join('') : '0';
+}
+
+// 🔹 新增：将 finalStat 转为键值对对象
+function buildStatMap(finalStat: { statName: string; statValue: string }[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const item of finalStat) {
+    map[item.statName] = item.statValue;
+  }
+  return map;
+}
+
+// 🔹 新增：统一格式化角色信息（含基础 + 属性）
+async function formatCharacterInfo(api: MapleStoryApi, ocid: string, characterName: string): Promise<string> {
+  const basic = await api.getCharacterBasic(ocid);
+  const stat = await api.getCharacterStat(ocid); 
+
+  if (!basic || !stat?.finalStat) {
+    throw new Error('无法获取完整角色数据');
+  }
+
+  const stats = buildStatMap(stat.finalStat);
+  const createDate = formatDateToYMD(basic.characterDateCreate);
+  const encoded = encodeURIComponent(characterName);
+
+  const statLines = [
+    `🌟 战斗力: ${formatNumber(stats['戰鬥力'] || '0')}`,
+    `⚔️ 物攻 / 魔攻: ${stats['攻擊力'] || '0'} / ${stats['魔法攻擊力'] || '0'}`,
+    // `🔮 魔攻: ${stats['魔法攻擊力'] || '0'}`,
+    `🎯 最终伤害: ${stats['最終傷害'] || '0'}%`,
+    `🧨 暴击伤害: ${stats['爆擊傷害'] || '0'}%`,
+    `👹 BOSS伤害: ${stats['BOSS怪物傷害'] || '0'}%`,
+    `👾 一般伤害: ${stats['一般怪物傷害'] || '0'}%`,
+    `💥 伤害: ${stats['傷害'] || '0'}%`,
+    `🛡️ 无视防御: ${stats['無視防禦率'] || '0'}%`,
+    `⭐ 星力: ${stats['星力'] || '0'}`,
+    `🌀 神秘力量(ARC): ${stats['神秘力量'] || '0'}`,
+    `✨ 真实力量(AUT): ${stats['真實之力'] || '0'}`,
+    `📦 道具掉落率: ${stats['道具掉落率'] || '0'}%`,
+    `💰 枫币获得量: ${stats['楓幣獲得量'] || '0'}%`,
+    `⏱️ 冷卻减少(秒): ${stats['冷卻時間減少(秒)'] || '0'}秒`,
+  ].join('\n');
+
+  return (
+    `${basic.characterName} (${basic.worldName}@${basic.characterGuildName || '无公会'})\n` +
+    `${basic.characterClass} | Lv.${basic.characterLevel} (${basic.characterExpRate}%)\n` +
+    `\n建立日期: ${createDate}` +
+    `\n\n详细属性:\n${statLines}\n\n` +
+    `更多详细信息: \nhttps://maplescouter.com/info?name=${encoded}`
+  );
+}
+
 // 插件入口
 export function apply(ctx: Context, config: Config) {
   if (!config.enabled) return;
@@ -209,22 +312,15 @@ export function apply(ctx: Context, config: Config) {
     .alias('%查詢')
     .action(async ({ session }, name) => {
       if (!canUse(session, config.ms)) return '';
-      if (!name) return '请提供角色名, 用法: %查询 角色名(仅限TMS)';
+      if (!name) return '请提供角色名, 用法: %查询 角色名';
       try {
         const character = await api.getCharacter(name);
         const ocid = character.ocid;
         if (!ocid) return '查询失败，请检查角色名';
-        const basic = await api.getCharacterBasic(ocid);
-        if (!basic) return '查询失败，请检查角色名';
-        const encoded = encodeURIComponent(name);
-        return (
-          `${basic.characterName} (${basic.worldName}@${basic.characterGuildName || '无公会'})\n` +
-          `${basic.characterClass} | Lv.${basic.characterLevel} (${basic.characterExpRate + '%'})\n\n` +
-          `详细信息: \nhttps://maplescouter.com/info?name=${encoded}`
-        );
+        return await formatCharacterInfo(api, ocid, name);
       } catch (err: any) {
         if (err.constructor.name === 'MapleStoryApiError') {
-          return `查询失败，请检查角色名(仅限TMS)`;
+          return `查询失败，请检查角色名`;
         }
         return `查询失败，请稍后再试或联系开发者(布丁@2482457432 )`;
       }
@@ -237,10 +333,10 @@ export function apply(ctx: Context, config: Config) {
       const qqId = session.userId;
       const currentGameId = getBoundGameId(qqId);
       if (currentGameId) {
-        return `${qqId} 已与 ${currentGameId} 绑定，如需换绑，先使用"%解绑"后再次绑定。`;
+        return `你的QQ号${qqId} 已与ID ${currentGameId} 绑定，如需换绑，先使用"%解绑"后再次绑定。`;
       }
       bindQQToGameId(qqId, gameId);
-      return `已成功绑定 ${qqId} 与 ${gameId}`;
+      return `已成功将你的QQ号 ${qqId} 与ID ${gameId} 绑定`;
     });
 
   ctx.command('%我的信息', '查询绑定的游戏角色信息')
@@ -248,31 +344,123 @@ export function apply(ctx: Context, config: Config) {
       const qqId = session.userId;
       const boundGameId = getBoundGameId(qqId);
       if (!boundGameId) {
-        return '您尚未绑定角色名，请使用 %绑定 角色名 指令进行绑定';
+        return '你尚未绑定角色名，快使用 %绑定 角色名 指令进行绑定吧';
       }
       if (!canUse(session, config.ms)) return '';
       if (!config.apiKey) {
-        return 'API密钥未设置，请联系管理员配置apiKey';
+        return 'API密钥未设置，请联系开发者配置API密钥';
       }
       try {
         const character = await api.getCharacter(boundGameId);
         const ocid = character.ocid;
         if (!ocid) return '查询失败，请检查角色名';
-        const basic = await api.getCharacterBasic(ocid);
-        if (!basic) return '查询失败，请检查角色名';
-        const encoded = encodeURIComponent(boundGameId);
-        return (
-          `${basic.characterName} (${basic.worldName}@${basic.characterGuildName || '无公会'})\n` +
-          `${basic.characterClass} | Lv.${basic.characterLevel} (${basic.characterExpRate + '%'})\n\n` +
-          `详细信息: \nhttps://maplescouter.com/info?name=${encoded}`
-        );
+        return await formatCharacterInfo(api, ocid, boundGameId);
       } catch (err: any) {
         if (err.constructor.name === 'MapleStoryApiError') {
-          return `查询失败，请检查角色名(仅限TMS)`;
+          return `查询失败，请检查角色名`;
         }
         return `查询失败，请稍后再试或联系开发者(布丁@2482457432 )`;
       }
     });
+
+  // 🔴【新增】统一的经验趋势分析函数（参考 ExpTrendChart.tsx）
+  async function analyzeExpTrend(api: MapleStoryApi, ocid: string, queryInterval: number): Promise<string> {
+    const tst = new Date(Date.now() + 8 * 3600_000);
+    function getTstDate(offsetDay: number) {
+      const d = new Date(tst.getTime() + offsetDay * 86400_000);
+      d.setHours(0, 0, 0, 0);
+      return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
+    }
+    const dates: ({ year: number; month: number; day: number } | null)[] = [null];
+    for (let i = 1; i <= 7; i++) dates.push(getTstDate(-i));
+
+    const basics: (CharacterBasicDto | null)[] = [];
+    for (let i = 0; i < dates.length; i++) {
+      const date = dates[i];
+      try {
+        await new Promise(r => setTimeout(r, queryInterval));
+        const b = date === null
+          ? await api.getCharacterBasic(ocid)
+          : await api.getCharacterBasic(ocid, date);
+        basics.push(b);
+      } catch (e) {
+        basics.push(null);
+      }
+    }
+
+    const valid = basics.filter((b) => b) as CharacterBasicDto[];
+    if (valid.length < 2) throw new Error('网络错误（');
+
+    // 构建每日变化记录（含升级情况）
+    const records: { level: number; expRate: number; label: string; gain?: number }[] = [];
+    for (let i = 0; i < valid.length; i++) {
+      records.push({
+        level: valid[i].characterLevel,
+        expRate: Number(valid[i].characterExpRate),
+        label: i === 0 ? '目  前' : `${i}天前`,
+      });
+    }
+
+    // 计算每日经验增益（含升级）
+    const gains: number[] = [];
+    for (let i = 0; i < records.length - 1; i++) {
+      const curr = records[i];
+      const prev = records[i + 1];
+      let gain = 0;
+
+      if (curr.level > prev.level) {
+        // 升级：(100 - 前日%) + 当日% + (等级差 - 1) * 100
+        const levelDiff = curr.level - prev.level;
+        gain = (100 - prev.expRate) + curr.expRate + (levelDiff - 1) * 100;
+      } else if (curr.level === prev.level) {
+        gain = curr.expRate - prev.expRate;
+      } else {
+        // 掉级？跳过
+        continue;
+      }
+      gains.push(gain);
+      records[i].gain = gain;
+    }
+
+    // 计算七日总成长（用于标题）
+    const start = records[records.length - 1];
+    const end = records[0];
+    let totalGrowthStr = '';
+    if (end.level > start.level) {
+      totalGrowthStr = `+${end.level - start.level} Lv`;
+    } else {
+      const totalGain = end.expRate - start.expRate;
+      totalGrowthStr = `${totalGain >= 0 ? '+' : ''}${totalGain.toFixed(3)}%`;
+    }
+
+    // 日均增长（只考虑有 gain 的天数）
+    const avgGain = gains.length ? gains.reduce((a, b) => a + b, 0) / gains.length : 0;
+    const currentRate = end.expRate;
+    const gap = 100 - currentRate;
+    const predictDays = avgGain <= 0 ? '∞' : Math.max(1, Math.ceil(gap / avgGain)).toString();
+    const upgradeDate = new Date(Date.now() + parseInt(predictDays) * 86400_000);
+    const upgradeStr = `${upgradeDate.getFullYear()}-${String(upgradeDate.getMonth() + 1).padStart(2, '0')}-${String(upgradeDate.getDate()).padStart(2, '0')}`;
+
+    // 构建输出文本
+    let lines =
+      `${valid[0].characterName}·${valid[0].characterClass} (${valid[0].worldName}@${valid[0].characterGuildName || '无公会'})\n` +
+      '\n经验变化:\n';
+
+    for (let i = 0; i < records.length - 1; i++) {
+      const curr = records[i];
+      const gain = curr.gain;
+      if (gain !== undefined) {
+        const sign = gain >= 0 ? '+' : '';
+        lines += `${curr.label}: Lv.${curr.level} (${curr.expRate.toFixed(3)}%) [${sign}${gain.toFixed(3)}%]\n`;
+      } else {
+        lines += `${curr.label}: Lv.${curr.level} (${curr.expRate.toFixed(3)}%)\n`;
+      }
+    }
+
+    lines += `------------------------------\n近期成长: ${totalGrowthStr}\n日均+${avgGain.toFixed(3)}% /天\n预计升级还需: ${predictDays} 天\n预计升级日期: ${upgradeStr}\n\n(当日数据可能不准确,下午6点完成数据分割)`;
+
+    return lines.trimEnd();
+  }
 
   ctx.command('%我的经验', '查看绑定角色最近7天经验变化')
     .alias('%我的經驗')
@@ -284,71 +472,14 @@ export function apply(ctx: Context, config: Config) {
       }
       if (!canUse(session, config.ms)) return '';
       if (!config.apiKey) {
-        return 'API密钥未设置，请联系管理员配置apiKey';
+        return 'API密钥未设置，请联系开发者配置API密钥';
       }
       try {
         const character = await api.getCharacter(boundGameId);
         const ocid = character.ocid;
         if (!ocid) return '查询失败，请检查角色名';
 
-        const tst = new Date(Date.now() + 8 * 3600_000);
-        function getTstDate(offsetDay: number) {
-          const d = new Date(tst.getTime() + offsetDay * 86400_000);
-          d.setHours(0, 0, 0, 0);
-          return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
-        }
-        const dates: ({ year: number; month: number; day: number } | null)[] = [null];
-        for (let i = 1; i <= 7; i++) dates.push(getTstDate(-i));
-
-        const basics: (CharacterBasicDto | null)[] = [];
-        for (let i = 0; i < dates.length; i++) {
-          const date = dates[i];
-          try {
-            await new Promise(r => setTimeout(r, config.ms.queryInterval ?? 100));
-            const b = date === null
-              ? await api.getCharacterBasic(ocid)
-              : await api.getCharacterBasic(ocid, date);
-            basics.push(b);
-          } catch (e) {
-            basics.push(null);
-          }
-        }
-
-        const valid = basics.filter((b) => b) as CharacterBasicDto[];
-        if (valid.length < 2) return '网络错误（';
-
-        const dailyDiffs: number[] = [];
-        for (let i = 0; i < valid.length - 1; i++) {
-          const curr = valid[i];
-          const prev = valid[i + 1];
-          if (curr.characterLevel === prev.characterLevel) {
-            dailyDiffs.push(Number(curr.characterExpRate) - Number(prev.characterExpRate));
-          }
-        }
-        const avgDiff = dailyDiffs.length ? dailyDiffs.reduce((a, b) => a + b, 0) / dailyDiffs.length : 0;
-        const currentRate = Number(valid[0].characterExpRate);
-        const gap = 100 - currentRate;
-        const predictDays = avgDiff <= 0 ? '∞' : Math.max(1, Math.ceil(gap / avgDiff)).toString();
-        const upgradeDate = new Date(Date.now() + parseInt(predictDays) * 86400_000);
-        const upgradeStr = `${upgradeDate.getFullYear()}-${String(upgradeDate.getMonth() + 1).padStart(2, '0')}-${String(upgradeDate.getDate()).padStart(2, '0')}`;
-
-        const head = valid[0];
-        let lines =
-          `${head.characterName}·${head.characterClass} (${head.worldName}@${head.characterGuildName || '无公会'})\n` +
-          '经验变化:\n';
-
-        for (let i = 0; i < valid.length - 1; i++) {
-          const curr = valid[i];
-          const prev = valid[i + 1];
-          if (curr.characterLevel > prev.characterLevel) {
-            lines += `${i === 0 ? '目  前' : `${i}天前`}: Lv.${curr.characterLevel} (${curr.characterExpRate}%)\n`;
-          } else {
-            const diff = (Number(curr.characterExpRate) - Number(prev.characterExpRate)).toFixed(3);
-            const sign = diff.startsWith('-') ? '' : '+';
-            lines += `${i === 0 ? '目  前' : `${i}天前`}: Lv.${curr.characterLevel} (${curr.characterExpRate}%)[${sign}${diff}%]\n`;
-          }
-        }
-        lines += `----------------------\n日均+${avgDiff.toFixed(3)}%/天\n预计升级还需: ${predictDays} 天\n预计升级日期: ${upgradeStr}\n\n(如若升级则不计算日均增长,可能出现预计数据报错)\n(当日数据可能不准确,下午6点完成更新)`;
+        const resultText = await analyzeExpTrend(api, ocid, config.ms.queryInterval ?? 100);
 
         const candidates = config.ms.images?.map(s => s.trim()).filter(Boolean) || [];
         const existFiles = candidates
@@ -358,13 +489,14 @@ export function apply(ctx: Context, config: Config) {
         if (existFiles.length) {
           const picked = existFiles[Math.floor(Math.random() * existFiles.length)];
           return [
-            lines.trimEnd(),
+            resultText,
             h.image(pathToFileURL(picked).href)
           ];
         }
-        return lines.trimEnd();
+        return resultText;
       } catch (err: any) {
-        if (err.constructor.name === 'MapleStoryApiError') return '查询失败，请检查角色名(仅限TMS)';
+        if (err.message === '网络错误（') return '网络错误（';
+        if (err.constructor.name === 'MapleStoryApiError') return '查询失败，请检查角色名';
         return '查询失败，请稍后再试或联系开发者(布丁@2482457432 )';
       }
     });
@@ -375,71 +507,14 @@ export function apply(ctx: Context, config: Config) {
       if (!canUse(session, config.ms)) return '';
       if (!name) return '请提供角色名';
       if (!config.apiKey) {
-        return 'API密钥未设置，请联系管理员配置apiKey';
+        return 'API密钥未设置，请联系开发者配置API密钥';
       }
       try {
         const character = await api.getCharacter(name);
         const ocid = character.ocid;
         if (!ocid) return '查询失败，请检查角色名';
 
-        const tst = new Date(Date.now() + 8 * 3600_000);
-        function getTstDate(offsetDay: number) {
-          const d = new Date(tst.getTime() + offsetDay * 86400_000);
-          d.setHours(0, 0, 0, 0);
-          return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
-        }
-        const dates: ({ year: number; month: number; day: number } | null)[] = [null];
-        for (let i = 1; i <= 7; i++) dates.push(getTstDate(-i));
-
-        const basics: (CharacterBasicDto | null)[] = [];
-        for (let i = 0; i < dates.length; i++) {
-          const date = dates[i];
-          try {
-            await new Promise(r => setTimeout(r, config.ms.queryInterval ?? 100));
-            const b = date === null
-              ? await api.getCharacterBasic(ocid)
-              : await api.getCharacterBasic(ocid, date);
-            basics.push(b);
-          } catch (e) {
-            basics.push(null);
-          }
-        }
-
-        const valid = basics.filter((b) => b) as CharacterBasicDto[];
-        if (valid.length < 2) return '网络错误（';
-
-        const dailyDiffs: number[] = [];
-        for (let i = 0; i < valid.length - 1; i++) {
-          const curr = valid[i];
-          const prev = valid[i + 1];
-          if (curr.characterLevel === prev.characterLevel) {
-            dailyDiffs.push(Number(curr.characterExpRate) - Number(prev.characterExpRate));
-          }
-        }
-        const avgDiff = dailyDiffs.length ? dailyDiffs.reduce((a, b) => a + b, 0) / dailyDiffs.length : 0;
-        const currentRate = Number(valid[0].characterExpRate);
-        const gap = 100 - currentRate;
-        const predictDays = avgDiff <= 0 ? '∞' : Math.max(1, Math.ceil(gap / avgDiff)).toString();
-        const upgradeDate = new Date(Date.now() + parseInt(predictDays) * 86400_000);
-        const upgradeStr = `${upgradeDate.getFullYear()}-${String(upgradeDate.getMonth() + 1).padStart(2, '0')}-${String(upgradeDate.getDate()).padStart(2, '0')}`;
-
-        const head = valid[0];
-        let lines =
-          `${head.characterName}·${head.characterClass} (${head.worldName}@${head.characterGuildName || '无公会'})\n` +
-          '经验变化:\n';
-
-        for (let i = 0; i < valid.length - 1; i++) {
-          const curr = valid[i];
-          const prev = valid[i + 1];
-          if (curr.characterLevel > prev.characterLevel) {
-            lines += `${i === 0 ? '目  前' : `${i}天前`}: Lv.${curr.characterLevel} (${curr.characterExpRate}%)\n`;
-          } else {
-            const diff = (Number(curr.characterExpRate) - Number(prev.characterExpRate)).toFixed(3);
-            const sign = diff.startsWith('-') ? '' : '+';
-            lines += `${i === 0 ? '目  前' : `${i}天前`}: Lv.${curr.characterLevel} (${curr.characterExpRate}%)[${sign}${diff}%]\n`;
-          }
-        }
-        lines += `----------------------\n日均+${avgDiff.toFixed(3)}%/天\n预计升级还需: ${predictDays} 天\n预计升级日期: ${upgradeStr}\n\n(如若升级则不计算日均增长,可能出现预计数据报错)\n(当日数据可能不准确,下午6点完成更新)`;
+        const resultText = await analyzeExpTrend(api, ocid, config.ms.queryInterval ?? 100);
 
         const candidates = config.ms.images?.map(s => s.trim()).filter(Boolean) || [];
         const existFiles = candidates
@@ -449,13 +524,14 @@ export function apply(ctx: Context, config: Config) {
         if (existFiles.length) {
           const picked = existFiles[Math.floor(Math.random() * existFiles.length)];
           return [
-            lines.trimEnd(),
+            resultText,
             h.image(pathToFileURL(picked).href)
           ];
         }
-        return lines.trimEnd();
+        return resultText;
       } catch (err: any) {
-        if (err.constructor.name === 'MapleStoryApiError') return '查询失败，请检查角色名(仅限TMS)';
+        if (err.message === '网络错误（') return '网络错误（';
+        if (err.constructor.name === 'MapleStoryApiError') return '查询失败，请检查角色名';
         return '查询失败，请稍后再试或联系开发者(布丁@2482457432 )';
       }
     });
